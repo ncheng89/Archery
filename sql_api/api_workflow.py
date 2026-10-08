@@ -9,6 +9,7 @@ from django.utils.decorators import method_decorator
 from django_q.tasks import async_task
 from drf_spectacular.utils import extend_schema
 from rest_framework import views, generics, status, serializers, permissions
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.response import Response
 
 from common.config import SysConfig
@@ -26,7 +27,12 @@ from sql.models import (
 from sql.notify import notify_for_audit, notify_for_execute
 from sql.query_privileges import _query_apply_audit_call_back
 from sql.utils.resource_group import user_groups
-from sql.utils.sql_review import can_cancel, can_execute, on_correct_time_period
+from sql.utils.sql_review import (
+    can_cancel,
+    can_execute,
+    can_rollback,
+    on_correct_time_period,
+)
 from sql.utils.tasks import del_schedule
 from sql.utils.workflow_audit import Audit, get_auditor, AuditException
 from .filters import WorkflowFilter, WorkflowAuditFilter
@@ -44,6 +50,25 @@ from .serializers import (
 )
 
 logger = logging.getLogger("default")
+
+
+class WorkflowRollback(views.APIView):
+    @extend_schema(summary="获取SQL上线工单回滚语句")
+    def get(self, request, pk):
+        try:
+            workflow = SqlWorkflow.objects.get(pk=pk)
+        except SqlWorkflow.DoesNotExist:
+            raise NotFound("工单不存在")
+        if not can_rollback(request.user, workflow.id):
+            raise PermissionDenied("你无权查看当前工单的回滚语句！")
+        try:
+            rows = get_engine(instance=workflow.instance).get_rollback(
+                workflow=workflow
+            )
+        except Exception:
+            logger.exception("获取工单回滚语句失败，workflow_id=%s", workflow.id)
+            return Response({"status": 1, "msg": "获取回滚语句失败", "rows": []})
+        return Response({"status": 0, "msg": "", "rows": rows})
 
 
 class ExecuteCheck(views.APIView):

@@ -461,6 +461,60 @@ class TestWorkflow(APITestCase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.json()["count"], 1)
 
+    @patch("sql_api.api_workflow.get_engine")
+    def test_get_workflow_rollback(self, _get_engine):
+        """测试获取工单回滚语句"""
+        SqlWorkflow.objects.filter(pk=self.wf1.id).update(
+            is_backup=True, status="workflow_finish"
+        )
+        rows = [["update user set id=1", "update user set id=2"]]
+        _get_engine.return_value.get_rollback.return_value = rows
+
+        r = self.client.get(f"/api/v1/workflow/{self.wf1.id}/rollback/")
+
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertDictEqual(r.json(), {"status": 0, "msg": "", "rows": rows})
+
+    def test_get_workflow_rollback_without_backup(self):
+        """测试未开启备份的工单不允许获取回滚语句"""
+        r = self.client.get(f"/api/v1/workflow/{self.wf1.id}/rollback/")
+
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_get_workflow_rollback_not_in_whitelist(self):
+        """测试非API白名单用户不允许获取回滚语句"""
+        SysConfig().set("api_user_whitelist", "")
+        SqlWorkflow.objects.filter(pk=self.wf1.id).update(
+            is_backup=True, status="workflow_finish"
+        )
+
+        r = self.client.get(f"/api/v1/workflow/{self.wf1.id}/rollback/")
+
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("sql_api.api_workflow.get_engine")
+    def test_get_workflow_rollback_exception(self, _get_engine):
+        """测试获取回滚语句异常"""
+        SqlWorkflow.objects.filter(pk=self.wf1.id).update(
+            is_backup=True, status="workflow_finish"
+        )
+        _get_engine.return_value.get_rollback.side_effect = RuntimeError(
+            "connection failed"
+        )
+
+        r = self.client.get(f"/api/v1/workflow/{self.wf1.id}/rollback/")
+
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertDictEqual(
+            r.json(), {"status": 1, "msg": "获取回滚语句失败", "rows": []}
+        )
+
+    def test_get_workflow_rollback_not_found(self):
+        """测试获取不存在工单的回滚语句"""
+        r = self.client.get("/api/v1/workflow/999999/rollback/")
+
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_check_param_is_None(self):
         """测试工单检测，参数内容为空"""
         json_data = {

@@ -145,6 +145,13 @@ class GoInceptionEngine(EngineBase):
 
         # 如果发现任何一个行执行结果里有errLevel为1或2，并且状态列没有包含Execute Successfully，则最终执行结果为有异常.
         for r in execute_result.rows:
+            if workflow.is_backup and re.search(
+                r"Backup failed", r.stagestatus, re.IGNORECASE
+            ):
+                execute_result.error = "Line {0} backup failed: {1}".format(
+                    r.id, r.errormessage
+                )
+                break
             if r.errlevel in (1, 2) and not re.search(
                 r"Execute Successfully", r.stagestatus
             ):

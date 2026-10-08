@@ -922,6 +922,51 @@ class TestGoInception(TestCase):
         new_engine = GoInceptionEngine()
         execute_result = new_engine.execute(workflow=self.wf)
         self.assertIsInstance(execute_result, ReviewSet)
+        self.assertFalse(execute_result.error)
+
+    @patch("sql.engines.goinception.GoInceptionEngine.query")
+    def test_execute_backup_failed(self, _query):
+        sql = "update user set id=100"
+        row = [
+            1,
+            "CHECKED",
+            0,
+            "Execute Successfully\nBackup failed",
+            "backup database connection failed",
+            "use archery",
+            1,
+            "'0_0_0'",
+            "None",
+            "0",
+            "",
+            "",
+        ]
+        column_list = [
+            "order_id",
+            "stage",
+            "error_level",
+            "stage_status",
+            "error_message",
+            "sql",
+            "affected_rows",
+            "sequence",
+            "backup_dbname",
+            "execute_time",
+            "sqlsha1",
+            "backup_time",
+        ]
+        _query.return_value = ResultSet(
+            full_sql=sql, rows=[row], column_list=column_list
+        )
+        new_engine = GoInceptionEngine()
+
+        execute_result = new_engine.execute(workflow=self.wf)
+
+        self.assertEqual(
+            execute_result.error,
+            "Line 1 backup failed: backup database connection failed",
+        )
+        self.assertEqual(len(execute_result.rows), 1)
 
     @patch("MySQLdb.connect.cursor.execute")
     @patch("MySQLdb.connect.cursor")
